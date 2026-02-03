@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>pnote</title>
+    <style>
+        :root { --bg: #121212; --panel: #1e1e1e; --accent: #27ae60; --dark-green: #1b5e20; --text: #e3e3e3; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; background: var(--bg); color: var(--text); }
+        #app { display: flex; flex-direction: column; height: 100vh; }
+        .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--panel); border-bottom: 1px solid #333; overflow-x: auto; }
+        button { background: #333; color: white; border: 1px solid #444; padding: 6px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+        button.active { background: var(--dark-green) !important; border-color: var(--accent); }
+        .canvas-container { flex: 1; position: relative; background: #fff; touch-action: none; }
+        canvas { display: block; width: 100%; height: 100%; }
+        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .window { background: var(--panel); padding: 25px; border-radius: 12px; width: 85%; max-width: 450px; border: 1px solid #444; }
+        #save-area { width: 100%; height: 120px; margin: 10px 0; background: #000; color: var(--accent); border: 1px solid #444; font-family: monospace; font-size: 10px; word-break: break-all; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="main-menu" class="overlay">
+        <div class="window">
+            <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin:0">pnote</h2>
+                <button onclick="saveAll()" style="background: var(--accent)">Save All</button>
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                <button onclick="addFolder()" style="background: var(--accent)">+ Folder</button>
+                <button onclick="loadAll()">📂 Load Data</button>
+            </div>
+            <div id="folder-list"></div>
+            <div style="font-size:10px; opacity:0.3; text-align:center; margin-top:20px;">made by perlch</div>
+        </div>
+    </div>
+
+    <div id="save-ui" class="overlay hidden">
+        <div class="window">
+            <h3>Data Code</h3>
+            <textarea id="save-area" readonly></textarea>
+            <button onclick="copyCode()" style="width:100%; background: var(--accent)">Copy & Close</button>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <button onclick="home()">Menu</button>
+        <div id="tabs" style="display:flex; gap:5px;"></div>
+        <button onclick="addFile()" style="background: var(--accent)">+ File</button>
+        <input type="color" id="color" value="#000000" style="height:30px; border:none; background:none;">
+        <button id="pBtn" class="active" onclick="setT('p')">Pen</button>
+        <button id="lBtn" onclick="setT('l')">Line</button>
+        <button id="eBtn" onclick="setT('e')">Eraser</button>
+        <button onclick="saveAll()" style="margin-left:auto; background: var(--accent)">Save</button>
+    </div>
+    
+    <div class="canvas-container"><canvas id="c"></canvas></div>
+</div>
+
+<script>
+    let db = { f: [] }, curF = null, curP = null, drawing = false, mode = 'p', shift = false;
+    const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+
+    window.onresize = () => {
+        const r = canvas.parentElement.getBoundingClientRect();
+        canvas.width = r.width; canvas.height = r.height; render();
+    };
+    window.onkeydown = e => shift = e.shiftKey;
+    window.onkeyup = e => shift = e.shiftKey;
+    setTimeout(window.onresize, 50);
+
+    const getXy = e => {
+        const r = canvas.getBoundingClientRect();
+        return [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)];
+    };
+
+    canvas.onpointerdown = e => {
+        if (curF === null) return;
+        drawing = true;
+        const [x, y] = getXy(e);
+        const file = db.f[curF].p[curP];
+        if (!file.d) file.d = [];
+        file.d.push({ t: (mode === 'l' || shift) ? 'l' : 'p', c: mode === 'e' ? '#fff' : document.getElementById('color').value, w: mode === 'e' ? 30 : 2, s: [[x, y]] });
+    };
+
+    canvas.onpointermove = e => {
+        if (!drawing) return;
+        const [x, y] = getXy(e);
+        const path = db.f[curF].p[curP].d.at(-1);
+        if (path.t === 'l') path.s[1] = [x, y];
+        else path.s.push([x, y]);
+        render();
+    };
+
+    canvas.onpointerup = () => drawing = false;
+
+    function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const paths = db.f[curF]?.p[curP]?.d;
+        if (!paths) return;
+        paths.forEach(p => {
+            ctx.beginPath(); ctx.strokeStyle = p.c; ctx.lineWidth = p.w; ctx.lineCap = ctx.lineJoin = 'round';
+            ctx.moveTo(p.s[0][0], p.s[0][1]);
+            if (p.t === 'l' && p.s[1]) ctx.lineTo(p.s[1][0], p.s[1][1]);
+            else p.s.forEach(pt => ctx.lineTo(pt[0], pt[1]));
+            ctx.stroke();
+        });
+    }
+
+    const setT = m => { mode = m; ['pBtn','lBtn','eBtn'].forEach(b => document.getElementById(b).classList.toggle('active', b[0] === m)); };
+    const home = () => { curF = null; document.getElementById('main-menu').classList.remove('hidden'); listF(); };
+    
+    function addFolder() { const n = prompt("Name:"); if(n) { db.f.push({ n, p: [{ n: 'File 1', d: [] }] }); listF(); } }
+    function openF(i) { curF = i; curP = 0; document.getElementById('main-menu').classList.add('hidden'); listT(); render(); }
+    function listF() {
+        document.getElementById('folder-list').innerHTML = db.f.map((f, i) => `
+            <div style="display:flex; gap:5px; margin-bottom:5px;">
+                <button style="flex:1; text-align:left;" onclick="openF(${i})">📁 ${f.n}</button>
+                <button onclick="db.f.splice(${i},1); listF()">Del</button>
+            </div>`).join('');
+    }
+    function listT() {
+        document.getElementById('tabs').innerHTML = db.f[curF].p.map((f, i) => `
+            <button class="${i === curP ? 'active' : ''}" onclick="curP=${i}; listT(); render();">${f.n}</button>
+        `).join('');
+    }
+    function addFile() { db.f[curF].p.push({ n: 'File ' + (db.f[curF].p.length + 1), d: [] }); curP = db.f[curF].p.length - 1; listT(); render(); }
+
+    function saveAll() {
+        const str = btoa(unescape(encodeURIComponent(JSON.stringify(db))));
+        document.getElementById('save-area').value = str;
+        document.getElementById('save-ui').classList.remove('hidden');
+    }
+    function copyCode() {
+        document.getElementById('save-area').select(); document.execCommand('copy');
+        document.getElementById('save-ui').classList.add('hidden');
+    }
+    function loadAll() {
+        const s = prompt("Code:");
+        if (s) { try { db = JSON.parse(decodeURIComponent(escape(atob(s)))); listF(); } catch(e) { alert("Error"); } }
+    }
+</script>
+</body>
+</html>
