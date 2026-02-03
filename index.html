@@ -8,11 +8,11 @@
         :root { --bg: #121212; --panel: #1e1e1e; --accent: #27ae60; --dark-green: #1b5e20; --text: #e3e3e3; }
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; background: var(--bg); color: var(--text); }
         #app { display: flex; flex-direction: column; height: 100vh; }
-        .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--panel); border-bottom: 1px solid #333; overflow-x: auto; }
+        .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--panel); border-bottom: 1px solid #333; overflow-x: auto; z-index: 10; }
         button { background: #333; color: white; border: 1px solid #444; padding: 6px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
         button.active { background: var(--dark-green) !important; border-color: var(--accent); }
-        .canvas-container { flex: 1; position: relative; background: #fff; touch-action: none; }
-        canvas { display: block; width: 100%; height: 100%; }
+        .canvas-container { flex: 1; position: relative; background: #fff; touch-action: none; overflow: hidden; }
+        canvas { display: block; transform-origin: 0 0; background: #fff; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .window { background: var(--panel); padding: 25px; border-radius: 12px; width: 85%; max-width: 450px; border: 1px solid #444; }
         #save-area { width: 100%; height: 120px; margin: 10px 0; background: #000; color: var(--accent); border: 1px solid #444; font-family: monospace; font-size: 10px; word-break: break-all; }
@@ -41,7 +41,10 @@
         <div class="window">
             <h3>Data Code</h3>
             <textarea id="save-area" readonly></textarea>
-            <button onclick="copyCode()" style="width:100%; background: var(--accent)">Copy & Close</button>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                <button onclick="copyCode()" style="background: var(--accent)">Copy & Close</button>
+                <button onclick="downloadTxt()" style="background: #2980b9">Download .txt</button>
+            </div>
         </div>
     </div>
 
@@ -52,52 +55,94 @@
         <input type="color" id="color" value="#000000" style="height:30px; border:none; background:none;">
         <button id="pBtn" class="active" onclick="setT('p')">Pen</button>
         <button id="lBtn" onclick="setT('l')">Line</button>
-        <button id="eBtn" onclick="setT('e')">Eraser</button>
+        <button id="eBtn" onclick="setT('e')" ondblclick="eraseAll()">Eraser</button>
+        <button onclick="resetView()">Reset Zoom</button>
         <button onclick="saveAll()" style="margin-left:auto; background: var(--accent)">Save</button>
     </div>
     
-    <div class="canvas-container"><canvas id="c"></canvas></div>
+    <div class="canvas-container" id="container"><canvas id="c"></canvas></div>
 </div>
 
 <script>
     let db = { f: [] }, curF = null, curP = null, drawing = false, mode = 'p', shift = false;
-    const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+    let scale = 1, offX = 0, offY = 0, tp = [];
+    let lastDist = 0, lastMid = null;
+
+    const canvas = document.getElementById('c'), ctx = canvas.getContext('2d'), container = document.getElementById('container');
 
     window.onresize = () => {
-        const r = canvas.parentElement.getBoundingClientRect();
-        canvas.width = r.width; canvas.height = r.height; render();
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        render();
     };
     window.onkeydown = e => shift = e.shiftKey;
     window.onkeyup = e => shift = e.shiftKey;
     setTimeout(window.onresize, 50);
 
     const getXy = e => {
-        const r = canvas.getBoundingClientRect();
-        return [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)];
+        return [(e.clientX - offX) / scale, (e.clientY - container.offsetTop - offY) / scale];
     };
 
-    canvas.onpointerdown = e => {
+    container.onpointerdown = e => {
         if (curF === null) return;
-        drawing = true;
-        const [x, y] = getXy(e);
-        const file = db.f[curF].p[curP];
-        if (!file.d) file.d = [];
-        file.d.push({ t: (mode === 'l' || shift) ? 'l' : 'p', c: mode === 'e' ? '#fff' : document.getElementById('color').value, w: mode === 'e' ? 30 : 2, s: [[x, y]] });
+        tp.push(e);
+        if (tp.length === 1) {
+            drawing = true;
+            const [x, y] = getXy(e);
+            const f = db.f[curF].p[curP];
+            if (!f.d) f.d = [];
+            f.d.push({ t: (mode === 'l' || shift) ? 'l' : 'p', c: mode === 'e' ? '#fff' : document.getElementById('color').value, w: (mode === 'e' ? 30 : 2) / scale, s: [[x, y]] });
+        } else {
+            drawing = false;
+            if (db.f[curF].p[curP].d.length > 0 && tp.length > 1) db.f[curF].p[curP].d.pop();
+            lastDist = Math.hypot(tp[0].clientX - tp[1].clientX, tp[0].clientY - tp[1].clientY);
+            lastMid = { x: (tp[0].clientX + tp[1].clientX) / 2, y: (tp[0].clientY + tp[1].clientY) / 2 };
+        }
     };
 
-    canvas.onpointermove = e => {
-        if (!drawing) return;
-        const [x, y] = getXy(e);
-        const path = db.f[curF].p[curP].d.at(-1);
-        if (path.t === 'l') path.s[1] = [x, y];
-        else path.s.push([x, y]);
-        render();
+    container.onpointermove = e => {
+        const i = tp.findIndex(t => t.pointerId === e.pointerId);
+        if (i > -1) tp[i] = e;
+
+        if (tp.length === 2) {
+            drawing = false;
+            const d = Math.hypot(tp[0].clientX - tp[1].clientX, tp[0].clientY - tp[1].clientY);
+            const m = { x: (tp[0].clientX + tp[1].clientX) / 2, y: (tp[0].clientY + tp[1].clientY) / 2 };
+            const s = d / lastDist;
+            
+            const ns = Math.min(Math.max(scale * s, 0.1), 10);
+            offX -= (m.x - offX) * (ns / scale - 1);
+            offY -= (m.y - offY) * (ns / scale - 1);
+            offX += (m.x - lastMid.x);
+            offY += (m.y - lastMid.y);
+            
+            scale = ns;
+            lastDist = d;
+            lastMid = m;
+            updateTransform();
+        } else if (drawing && tp.length === 1) {
+            const [x, y] = getXy(e);
+            const path = db.f[curF].p[curP].d.at(-1);
+            if (path.t === 'l') path.s[1] = [x, y];
+            else path.s.push([x, y]);
+            render();
+        }
     };
 
-    canvas.onpointerup = () => drawing = false;
+    container.onpointerup = e => {
+        tp = tp.filter(t => t.pointerId !== e.pointerId);
+        if (tp.length < 2) { lastDist = 0; lastMid = null; }
+        drawing = false;
+    };
+
+    function updateTransform() {
+        canvas.style.transform = `translate(${offX}px, ${offY}px) scale(${scale})`;
+    }
+
+    function resetView() { scale = 1; offX = 0; offY = 0; updateTransform(); }
 
     function render() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvas.width / scale + 10000, canvas.height / scale + 10000);
         const paths = db.f[curF]?.p[curP]?.d;
         if (!paths) return;
         paths.forEach(p => {
@@ -111,9 +156,8 @@
 
     const setT = m => { mode = m; ['pBtn','lBtn','eBtn'].forEach(b => document.getElementById(b).classList.toggle('active', b[0] === m)); };
     const home = () => { curF = null; document.getElementById('main-menu').classList.remove('hidden'); listF(); };
-    
     function addFolder() { const n = prompt("Name:"); if(n) { db.f.push({ n, p: [{ n: 'File 1', d: [] }] }); listF(); } }
-    function openF(i) { curF = i; curP = 0; document.getElementById('main-menu').classList.add('hidden'); listT(); render(); }
+    function openF(i) { curF = i; curP = 0; document.getElementById('main-menu').classList.add('hidden'); resetView(); listT(); render(); }
     function listF() {
         document.getElementById('folder-list').innerHTML = db.f.map((f, i) => `
             <div style="display:flex; gap:5px; margin-bottom:5px;">
@@ -123,23 +167,33 @@
     }
     function listT() {
         document.getElementById('tabs').innerHTML = db.f[curF].p.map((f, i) => `
-            <button class="${i === curP ? 'active' : ''}" onclick="curP=${i}; listT(); render();">${f.n}</button>
+            <button class="${i === curP ? 'active' : ''}" onclick="curP=${i}; listT(); render();" oncontextmenu="event.preventDefault(); renFile(${i})">${f.n}</button>
         `).join('');
     }
+    function renFile(i) { const n = prompt("New name:", db.f[curF].p[i].n); if(n) { db.f[curF].p[i].n = n; listT(); } }
     function addFile() { db.f[curF].p.push({ n: 'File ' + (db.f[curF].p.length + 1), d: [] }); curP = db.f[curF].p.length - 1; listT(); render(); }
-
+    function eraseAll() { if(confirm("Clear?")) { db.f[curF].p[curP].d = []; render(); } }
     function saveAll() {
         const str = btoa(unescape(encodeURIComponent(JSON.stringify(db))));
         document.getElementById('save-area').value = str;
         document.getElementById('save-ui').classList.remove('hidden');
     }
-    function copyCode() {
-        document.getElementById('save-area').select(); document.execCommand('copy');
-        document.getElementById('save-ui').classList.add('hidden');
+    function copyCode() { document.getElementById('save-area').select(); document.execCommand('copy'); document.getElementById('save-ui').classList.add('hidden'); }
+    function downloadTxt() {
+        const n = prompt("Filename:", "note"); if(!n) return;
+        const b = new Blob([document.getElementById('save-area').value], {type: "text/plain"});
+        const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = n + ".txt"; a.click();
     }
     function loadAll() {
-        const s = prompt("Code:");
-        if (s) { try { db = JSON.parse(decodeURIComponent(escape(atob(s)))); listF(); } catch(e) { alert("Error"); } }
+        const input = document.createElement('input'); input.type = 'file'; input.accept = '.txt';
+        input.onchange = e => {
+            const reader = new FileReader();
+            reader.onload = ev => { try { db = JSON.parse(decodeURIComponent(escape(atob(ev.target.result)))); listF(); } catch(err) { alert("Error"); } };
+            reader.readAsText(e.target.files[0]);
+        };
+        const s = prompt("Code or 'file':");
+        if (s === 'file') input.click();
+        else if (s) { try { db = JSON.parse(decodeURIComponent(escape(atob(s)))); listF(); } catch(e) { alert("Error"); } }
     }
 </script>
 </body>
