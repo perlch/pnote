@@ -13,4 +13,7 @@ MIT license
 <img width="960" height="440" alt="image" src="https://github.com/user-attachments/assets/eba91a97-0e77-4193-bab1-a0d1eac1efed" /> <br>
 4) erase all 5) txt saving files 6) AND MORE MORE MORE <br>
 **the 4th of February 2026**
-erase all (double click on erase), renaming files (double click on file name), txt download upload (+ example.txt), zoom in zoom out (mobile)
+erase all (double click on erase), renaming files (double click on file name), txt download upload (+ example.txt), zoom in zoom out (mobile) <br>
+
+**the 12th of February 2026**
+pasting and moving pictures
