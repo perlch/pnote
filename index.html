@@ -20,181 +20,297 @@
     </style>
 </head>
 <body>
+    <div id="app">
+        <div id="main-menu" class="overlay">
+            <div class="window">
+                <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin:0">pnote</h2>
+                    <button onclick="saveAll()" style="background: var(--accent)">Save All</button>
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                    <button onclick="addFolder()" style="background: var(--accent)">+ Folder</button>
+                    <button onclick="loadAll()"> Load Data 📂</button>
+                </div>
+                <div id="folder-list"></div>
+                <div style="font-size:10px; opacity:0.3; text-align:center; margin-top:20px;">made by perlch</div>
+            </div>
+        </div>
 
-<div id="app">
-    <div id="main-menu" class="overlay">
-        <div class="window">
-            <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2 style="margin:0">pnote</h2>
-                <button onclick="saveAll()" style="background: var(--accent)">Save All</button>
+        <div id="save-ui" class="overlay hidden">
+            <div class="window">
+                <h3>Data Code</h3>
+                <textarea id="save-area" readonly></textarea>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                    <button onclick="copyCode()" style="background: var(--accent)">Copy & Close</button>
+                    <button onclick="downloadTxt()" style="background: #2980b9">Download .txt</button>
+                </div>
             </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-                <button onclick="addFolder()" style="background: var(--accent)">+ Folder</button>
-                <button onclick="loadAll()">📂 Load Data</button>
-            </div>
-            <div id="folder-list"></div>
-            <div style="font-size:10px; opacity:0.3; text-align:center; margin-top:20px;">made by perlch</div>
+        </div>
+
+        <div class="toolbar">
+            <button onclick="home()">Menu</button>
+            <div id="tabs" style="display:flex; gap:5px;"></div>
+            <button onclick="addFile()" style="background: var(--accent)">+ File</button>
+            <button onclick="insertImage()">Img 🖼️</button>
+            <input type="color" id="color" value="#000000" style="height:30px; border:none; background:none;">
+            <button id="pBtn" class="active" onclick="setT('p')">Pen</button>
+            <button id="lBtn" onclick="setT('l')">Line</button>
+            <button id="gBtn" onclick="setT('g')">Grab 🖐️</button>
+            <button id="eBtn" onclick="setT('e')" ondblclick="eraseAll()">Eraser</button>
+            <button onclick="resetView()">Reset Zoom</button>
+            <button onclick="saveAll()" style="margin-left:auto; background: var(--accent)">Save</button>
+        </div>
+
+        <div class="canvas-container" id="container">
+            <canvas id="c"></canvas>
         </div>
     </div>
 
-    <div id="save-ui" class="overlay hidden">
-        <div class="window">
-            <h3>Data Code</h3>
-            <textarea id="save-area" readonly></textarea>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
-                <button onclick="copyCode()" style="background: var(--accent)">Copy & Close</button>
-                <button onclick="downloadTxt()" style="background: #2980b9">Download .txt</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="toolbar">
-        <button onclick="home()">Menu</button>
-        <div id="tabs" style="display:flex; gap:5px;"></div>
-        <button onclick="addFile()" style="background: var(--accent)">+ File</button>
-        <input type="color" id="color" value="#000000" style="height:30px; border:none; background:none;">
-        <button id="pBtn" class="active" onclick="setT('p')">Pen</button>
-        <button id="lBtn" onclick="setT('l')">Line</button>
-        <button id="eBtn" onclick="setT('e')" ondblclick="eraseAll()">Eraser</button>
-        <button onclick="resetView()">Reset Zoom</button>
-        <button onclick="saveAll()" style="margin-left:auto; background: var(--accent)">Save</button>
-    </div>
-    
-    <div class="canvas-container" id="container"><canvas id="c"></canvas></div>
-</div>
-
-<script>
-    let db = { f: [] }, curF = null, curP = null, drawing = false, mode = 'p', shift = false;
-    let scale = 1, offX = 0, offY = 0, tp = [];
-    let lastDist = 0, lastMid = null;
-
-    const canvas = document.getElementById('c'), ctx = canvas.getContext('2d'), container = document.getElementById('container');
-
-    window.onresize = () => {
-        canvas.width = container.clientWidth;
-        canvas.height = container.clientHeight;
-        render();
-    };
-    window.onkeydown = e => shift = e.shiftKey;
-    window.onkeyup = e => shift = e.shiftKey;
-    setTimeout(window.onresize, 50);
-
-    const getXy = e => {
-        return [(e.clientX - offX) / scale, (e.clientY - container.offsetTop - offY) / scale];
-    };
-
-    container.onpointerdown = e => {
-        if (curF === null) return;
-        tp.push(e);
-        if (tp.length === 1) {
-            drawing = true;
-            const [x, y] = getXy(e);
-            const f = db.f[curF].p[curP];
-            if (!f.d) f.d = [];
-            f.d.push({ t: (mode === 'l' || shift) ? 'l' : 'p', c: mode === 'e' ? '#fff' : document.getElementById('color').value, w: (mode === 'e' ? 30 : 2) / scale, s: [[x, y]] });
-        } else {
-            drawing = false;
-            if (db.f[curF].p[curP].d.length > 0 && tp.length > 1) db.f[curF].p[curP].d.pop();
-            lastDist = Math.hypot(tp[0].clientX - tp[1].clientX, tp[0].clientY - tp[1].clientY);
-            lastMid = { x: (tp[0].clientX + tp[1].clientX) / 2, y: (tp[0].clientY + tp[1].clientY) / 2 };
-        }
-    };
-
-    container.onpointermove = e => {
-        const i = tp.findIndex(t => t.pointerId === e.pointerId);
-        if (i > -1) tp[i] = e;
-
-        if (tp.length === 2) {
-            drawing = false;
-            const d = Math.hypot(tp[0].clientX - tp[1].clientX, tp[0].clientY - tp[1].clientY);
-            const m = { x: (tp[0].clientX + tp[1].clientX) / 2, y: (tp[0].clientY + tp[1].clientY) / 2 };
-            const s = d / lastDist;
-            
-            const ns = Math.min(Math.max(scale * s, 0.1), 10);
-            offX -= (m.x - offX) * (ns / scale - 1);
-            offY -= (m.y - offY) * (ns / scale - 1);
-            offX += (m.x - lastMid.x);
-            offY += (m.y - lastMid.y);
-            
-            scale = ns;
-            lastDist = d;
-            lastMid = m;
-            updateTransform();
-        } else if (drawing && tp.length === 1) {
-            const [x, y] = getXy(e);
-            const path = db.f[curF].p[curP].d.at(-1);
-            if (path.t === 'l') path.s[1] = [x, y];
-            else path.s.push([x, y]);
-            render();
-        }
-    };
-
-    container.onpointerup = e => {
-        tp = tp.filter(t => t.pointerId !== e.pointerId);
-        if (tp.length < 2) { lastDist = 0; lastMid = null; }
-        drawing = false;
-    };
-
-    function updateTransform() {
-        canvas.style.transform = `translate(${offX}px, ${offY}px) scale(${scale})`;
-    }
-
-    function resetView() { scale = 1; offX = 0; offY = 0; updateTransform(); }
-
-    function render() {
-        ctx.clearRect(0, 0, canvas.width / scale + 10000, canvas.height / scale + 10000);
-        const paths = db.f[curF]?.p[curP]?.d;
-        if (!paths) return;
-        paths.forEach(p => {
-            ctx.beginPath(); ctx.strokeStyle = p.c; ctx.lineWidth = p.w; ctx.lineCap = ctx.lineJoin = 'round';
-            ctx.moveTo(p.s[0][0], p.s[0][1]);
-            if (p.t === 'l' && p.s[1]) ctx.lineTo(p.s[1][0], p.s[1][1]);
-            else p.s.forEach(pt => ctx.lineTo(pt[0], pt[1]));
-            ctx.stroke();
-        });
-    }
-
-    const setT = m => { mode = m; ['pBtn','lBtn','eBtn'].forEach(b => document.getElementById(b).classList.toggle('active', b[0] === m)); };
-    const home = () => { curF = null; document.getElementById('main-menu').classList.remove('hidden'); listF(); };
-    function addFolder() { const n = prompt("Name:"); if(n) { db.f.push({ n, p: [{ n: 'File 1', d: [] }] }); listF(); } }
-    function openF(i) { curF = i; curP = 0; document.getElementById('main-menu').classList.add('hidden'); resetView(); listT(); render(); }
-    function listF() {
-        document.getElementById('folder-list').innerHTML = db.f.map((f, i) => `
-            <div style="display:flex; gap:5px; margin-bottom:5px;">
-                <button style="flex:1; text-align:left;" onclick="openF(${i})">📁 ${f.n}</button>
-                <button onclick="db.f.splice(${i},1); listF()">Del</button>
-            </div>`).join('');
-    }
-    function listT() {
-        document.getElementById('tabs').innerHTML = db.f[curF].p.map((f, i) => `
-            <button class="${i === curP ? 'active' : ''}" onclick="curP=${i}; listT(); render();" oncontextmenu="event.preventDefault(); renFile(${i})">${f.n}</button>
-        `).join('');
-    }
-    function renFile(i) { const n = prompt("New name:", db.f[curF].p[i].n); if(n) { db.f[curF].p[i].n = n; listT(); } }
-    function addFile() { db.f[curF].p.push({ n: 'File ' + (db.f[curF].p.length + 1), d: [] }); curP = db.f[curF].p.length - 1; listT(); render(); }
-    function eraseAll() { if(confirm("Clear?")) { db.f[curF].p[curP].d = []; render(); } }
-    function saveAll() {
-        const str = btoa(unescape(encodeURIComponent(JSON.stringify(db))));
-        document.getElementById('save-area').value = str;
-        document.getElementById('save-ui').classList.remove('hidden');
-    }
-    function copyCode() { document.getElementById('save-area').select(); document.execCommand('copy'); document.getElementById('save-ui').classList.add('hidden'); }
-    function downloadTxt() {
-        const n = prompt("Filename:", "note"); if(!n) return;
-        const b = new Blob([document.getElementById('save-area').value], {type: "text/plain"});
-        const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = n + ".txt"; a.click();
-    }
-    function loadAll() {
-        const input = document.createElement('input'); input.type = 'file'; input.accept = '.txt';
-        input.onchange = e => {
-            const reader = new FileReader();
-            reader.onload = ev => { try { db = JSON.parse(decodeURIComponent(escape(atob(ev.target.result)))); listF(); } catch(err) { alert("Error"); } };
-            reader.readAsText(e.target.files[0]);
+    <script>
+        let db = { f: [] }, curF = null, curP = null, drawing = false, mode = 'p', shift = false;
+        let scale = 1, offX = 0, offY = 0, tp = [], dragImg = null, startIdx = -1;
+        let lastDist = 0, lastMid = null, imgCache = {};
+        
+        const canvas = document.getElementById('c'), ctx = canvas.getContext('2d'), container = document.getElementById('container');
+        
+        window.onresize = () => { 
+            canvas.width = container.clientWidth; 
+            canvas.height = container.clientHeight; 
+            render(); 
         };
-        const s = prompt("Code or 'file':");
-        if (s === 'file') input.click();
-        else if (s) { try { db = JSON.parse(decodeURIComponent(escape(atob(s)))); listF(); } catch(e) { alert("Error"); } }
-    }
-</script>
+        
+        window.onkeydown = e => shift = e.shiftKey;
+        window.onkeyup = e => shift = e.shiftKey;
+        setTimeout(window.onresize, 50);
+        
+        const getXy = e => [(e.clientX - offX) / scale, (e.clientY - container.offsetTop - offY) / scale];
+        
+        container.onpointerdown = e => {
+            if (curF === null) return;
+            tp.push(e);
+            if (tp.length === 1) {
+                const [x, y] = getXy(e);
+                if (mode === 'g') {
+                    const d = db.f[curF].p[curP].d;
+                    for (let i = d.length - 1; i >= 0; i--) {
+                        if (d[i].t === 'img' && x >= d[i].x && x <= d[i].x + d[i].w && y >= d[i].y && y <= d[i].y + d[i].h) {
+                            dragImg = d[i]; 
+                            startIdx = i; 
+                            break;
+                        }
+                    }
+                } else {
+                    drawing = true;
+                    const f = db.f[curF].p[curP];
+                    if (!f.d) f.d = [];
+                    f.d.push({ 
+                        t: (mode === 'l' || shift) ? 'l' : 'p', 
+                        c: mode === 'e' ? '#fff' : document.getElementById('color').value, 
+                        w: (mode === 'e' ? 30 : 2) / scale, 
+                        s: [[x, y]] 
+                    });
+                }
+            } else {
+                drawing = false; 
+                dragImg = null;
+                lastDist = Math.hypot(tp[0].clientX - tp[1].clientX, tp[0].clientY - tp[1].clientY);
+                lastMid = { x: (tp[0].clientX + tp[1].clientX) / 2, y: (tp[0].clientY + tp[1].clientY) / 2 };
+            }
+        };
+
+        container.onpointermove = e => {
+            const i = tp.findIndex(t => t.pointerId === e.pointerId);
+            if (i > -1) tp[i] = e;
+            if (tp.length === 2) {
+                const d = Math.hypot(tp[0].clientX - tp[1].clientX, tp[0].clientY - tp[1].clientY);
+                const m = { x: (tp[0].clientX + tp[1].clientX) / 2, y: (tp[0].clientY + tp[1].clientY) / 2 };
+                const s = d / lastDist;
+                const ns = Math.min(Math.max(scale * s, 0.1), 10);
+                offX -= (m.x - offX) * (ns / scale - 1); 
+                offY -= (m.y - offY) * (ns / scale - 1);
+                offX += (m.x - lastMid.x); 
+                offY += (m.y - lastMid.y);
+                scale = ns; 
+                lastDist = d; 
+                lastMid = m;
+                updateTransform();
+            } else if (dragImg && tp.length === 1) {
+                const [x, y] = getXy(e);
+                dragImg.x = x - dragImg.w / 2; 
+                dragImg.y = y - dragImg.h / 2;
+                render();
+            } else if (drawing && tp.length === 1) {
+                const [x, y] = getXy(e);
+                const path = db.f[curF].p[curP].d.at(-1);
+                if (path.t === 'l') path.s[1] = [x, y]; 
+                else path.s.push([x, y]);
+                render();
+            }
+        };
+
+        container.onpointerup = e => { 
+            tp = tp.filter(t => t.pointerId !== e.pointerId); 
+            if (tp.length < 2) { lastDist = 0; lastMid = null; } 
+            drawing = false; 
+            dragImg = null; 
+        };
+
+        function updateTransform() { 
+            canvas.style.transform = `translate(${offX}px, ${offY}px) scale(${scale})`; 
+        }
+
+        function resetView() { 
+            scale = 1; offX = 0; offY = 0; 
+            updateTransform(); 
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width / scale + 20000, canvas.height / scale + 20000);
+            const paths = db.f[curF]?.p[curP]?.d;
+            if (!paths) return;
+            paths.forEach(p => {
+                if (p.t === 'img') {
+                    if (!imgCache[p.src]) {
+                        const img = new Image(); 
+                        img.src = p.src;
+                        img.onload = () => { imgCache[p.src] = img; render(); };
+                    } else ctx.drawImage(imgCache[p.src], p.x, p.y, p.w, p.h);
+                } else {
+                    ctx.beginPath(); 
+                    ctx.strokeStyle = p.c; 
+                    ctx.lineWidth = p.w; 
+                    ctx.lineCap = ctx.lineJoin = 'round';
+                    ctx.moveTo(p.s[0][0], p.s[0][1]);
+                    if (p.t === 'l' && p.s[1]) ctx.lineTo(p.s[1][0], p.s[1][1]);
+                    else p.s.forEach(pt => ctx.lineTo(pt[0], pt[1]));
+                    ctx.stroke();
+                }
+            });
+        }
+
+        const setT = m => { 
+            mode = m; 
+            ['pBtn','lBtn','eBtn','gBtn'].forEach(b => document.getElementById(b).classList.toggle('active', b[0] === m)); 
+        };
+
+        const home = () => { 
+            curF = null; 
+            document.getElementById('main-menu').classList.remove('hidden'); 
+            listF(); 
+        };
+
+        function addFolder() { 
+            const n = prompt("Name:"); 
+            if(n) { db.f.push({ n, p: [{ n: 'File 1', d: [] }] }); listF(); } 
+        }
+
+        function openF(i) { 
+            curF = i; curP = 0; 
+            document.getElementById('main-menu').classList.add('hidden'); 
+            resetView(); listT(); render(); 
+        }
+
+        function listF() {
+            document.getElementById('folder-list').innerHTML = db.f.map((f, i) => `
+                <div style="display:flex; gap:5px; margin-bottom:5px;">
+                    <button style="flex:1; text-align:left;" onclick="openF(${i})"> 📁 ${f.n}</button>
+                    <button onclick="db.f.splice(${i},1); listF()">Del</button>
+                </div>`).join('');
+        }
+
+        function listT() {
+            document.getElementById('tabs').innerHTML = db.f[curF].p.map((f, i) => `
+                <button class="${i === curP ? 'active' : ''}" onclick="curP=${i}; listT(); render();" oncontextmenu="event.preventDefault(); renFile(${i})">${f.n}</button>
+            `).join('');
+        }
+
+        function renFile(i) { 
+            const n = prompt("New name:", db.f[curF].p[i].n); 
+            if(n) { db.f[curF].p[i].n = n; listT(); } 
+        }
+
+        function addFile() { 
+            db.f[curF].p.push({ n: 'File ' + (db.f[curF].p.length + 1), d: [] }); 
+            curP = db.f[curF].p.length - 1; 
+            listT(); render(); 
+        }
+
+        function eraseAll() { 
+            if(confirm("Clear?")) { db.f[curF].p[curP].d = []; render(); } 
+        }
+
+        function saveAll() {
+            const str = btoa(unescape(encodeURIComponent(JSON.stringify(db))));
+            document.getElementById('save-area').value = str; 
+            document.getElementById('save-ui').classList.remove('hidden');
+        }
+
+        function copyCode() { 
+            document.getElementById('save-area').select(); 
+            document.execCommand('copy'); 
+            document.getElementById('save-ui').classList.add('hidden'); 
+        }
+
+        function downloadTxt() {
+            const n = prompt("Filename:", "note"); 
+            if(!n) return;
+            const b = new Blob([document.getElementById('save-area').value], {type: "text/plain"});
+            const a = document.createElement("a"); 
+            a.href = URL.createObjectURL(b); 
+            a.download = n + ".txt"; a.click();
+        }
+
+        function loadAll() {
+            const inp = document.createElement('input'); 
+            inp.type = 'file'; 
+            inp.accept = '.txt';
+            inp.onchange = e => {
+                const r = new FileReader(); 
+                r.onload = ev => { 
+                    try { 
+                        db = JSON.parse(decodeURIComponent(escape(atob(ev.target.result)))); 
+                        listF(); 
+                    } catch(err) { alert("Error"); } 
+                };
+                r.readAsText(e.target.files[0]);
+            };
+            const s = prompt("Code or 'file':");
+            if (s === 'file') inp.click(); 
+            else if (s) { 
+                try { 
+                    db = JSON.parse(decodeURIComponent(escape(atob(s)))); 
+                    listF(); 
+                } catch(e) { alert("Error"); } 
+            }
+        }
+
+        function insertImage() {
+            if (curF === null) return;
+            const inp = document.createElement('input'); 
+            inp.type = 'file'; 
+            inp.accept = 'image/*';
+            inp.onchange = e => {
+                const r = new FileReader();
+                r.onload = ev => {
+                    const img = new Image(); 
+                    img.src = ev.target.result;
+                    img.onload = () => {
+                        const [x, y] = getXy({clientX: canvas.width/2, clientY: canvas.height/2});
+                        db.f[curF].p[curP].d.push({ 
+                            t:'img', 
+                            src: ev.target.result, 
+                            x: x - (img.width/4), 
+                            y: y - (img.height/4), 
+                            w: img.width/2, 
+                            h: img.height/2 
+                        });
+                        render();
+                    };
+                };
+                r.readAsDataURL(e.target.files[0]);
+            };
+            inp.click();
+        }
+    </script>
 </body>
 </html>
